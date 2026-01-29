@@ -4,7 +4,10 @@ import re
 import uuid
 import requests
 import threading
-import uvicorn
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Scam Honeypot API")
 
@@ -26,18 +29,18 @@ AGENT_RESPONSES = {
     "initial": [
         "Oh no! What happened to my account? Please tell me more.",
         "This is alarming! How can I fix this immediately?",
-        "I'm really worried now. What do I need to do?",
-        "Please help me! I don't want my account blocked."
+        "I am really worried now. What do I need to do?",
+        "Please help me! I do not want my account blocked."
     ],
     "prize": [
-        "Wow, I won something? That's amazing! What do I need to do to claim it?",
+        "Wow, I won something? That is amazing! What do I need to do to claim it?",
         "I never win anything! How can I receive my prize?",
         "This is so exciting! Do you need my bank details for the transfer?"
     ],
     "verification": [
-        "Of course, I'll verify right away! What information do you need?",
-        "I don't want any problems. Should I share my OTP with you?",
-        "Yes, I'll do the verification. Do you need my Aadhar number?"
+        "Of course, I will verify right away! What information do you need?",
+        "I do not want any problems. Should I share my OTP with you?",
+        "Yes, I will do the verification. Do you need my Aadhar number?"
     ],
     "financial": [
         "I can share my account details. Which bank do you need?",
@@ -45,14 +48,14 @@ AGENT_RESPONSES = {
         "I have accounts in SBI and HDFC. Which one do you want?"
     ],
     "threat": [
-        "Please don't arrest me! I'll do whatever you say.",
-        "I'm scared of legal action. How much do I need to pay?",
-        "I'll cooperate fully. What information do you need from me?"
+        "Please do not arrest me! I will do whatever you say.",
+        "I am scared of legal action. How much do I need to pay?",
+        "I will cooperate fully. What information do you need from me?"
     ],
     "engaged": [
-        "I'm ready to proceed. What's the next step?",
+        "I am ready to proceed. What is the next step?",
         "I trust you. Please guide me through this process.",
-        "I'll share everything you need. Just tell me what to send.",
+        "I will share everything you need. Just tell me what to send.",
         "Should I transfer the money now? How much exactly?"
     ],
     "default": [
@@ -65,7 +68,9 @@ AGENT_RESPONSES = {
 
 
 def detect_scam(text):
-    text_lower = text.lower()
+    if not text:
+        return False, []
+    text_lower = str(text).lower()
     found_keywords = []
     for keyword in SCAM_KEYWORDS:
         if keyword in text_lower:
@@ -74,6 +79,15 @@ def detect_scam(text):
 
 
 def extract_intelligence(text):
+    if not text:
+        return {
+            "bankAccounts": [],
+            "upiIds": [],
+            "phoneNumbers": [],
+            "phishingLinks": [],
+            "suspiciousKeywords": []
+        }
+    text = str(text)
     bank_accounts = re.findall(r'\b\d{9,18}\b', text)
     upi_pattern = r'[a-zA-Z0-9._-]+@[a-zA-Z0-9]+'
     upi_ids = re.findall(upi_pattern, text)
@@ -81,18 +95,17 @@ def extract_intelligence(text):
     phone_numbers = re.findall(phone_pattern, text)
     url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
     phishing_links = re.findall(url_pattern, text)
-    ifsc_codes = re.findall(r'\b[A-Z]{4}0[A-Z0-9]{6}\b', text)
     return {
         "bankAccounts": list(set(bank_accounts)),
         "upiIds": list(set(upi_ids)),
         "phoneNumbers": list(set(phone_numbers)),
         "phishingLinks": list(set(phishing_links)),
-        "ifscCodes": list(set(ifsc_codes))
+        "suspiciousKeywords": []
     }
 
 
 def get_response_category(text, keywords):
-    text_lower = text.lower()
+    text_lower = str(text).lower()
     if any(w in text_lower for w in ["won", "winner", "prize", "lottery", "reward", "lucky"]):
         return "prize"
     if any(w in text_lower for w in ["verify", "otp", "kyc", "aadhar", "pin", "password"]):
@@ -129,8 +142,8 @@ def send_callback(session_id, session_data):
             "agentNotes": "Scammer engaged using urgency and financial tactics"
         }
         requests.post(GUVI_CALLBACK_URL, json=payload, timeout=10)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Callback error: {e}")
 
 
 def trigger_callback(session_id, session_data):
@@ -139,26 +152,37 @@ def trigger_callback(session_id, session_data):
     thread.start()
 
 
+def extract_text_from_any(obj):
+    if obj is None:
+        return None
+    if isinstance(obj, str):
+        return obj
+    if isinstance(obj, dict):
+        for key in ["text", "message", "content", "query", "body", "msg", "data"]:
+            if key in obj:
+                val = obj[key]
+                if isinstance(val, str):
+                    return val
+                if isinstance(val, dict):
+                    inner = extract_text_from_any(val)
+                    if inner:
+                        return inner
+        for val in obj.values():
+            if isinstance(val, str) and len(val) > 5:
+                return val
+    return None
+
+
 def extract_message_text(body):
     if body is None:
-        return None, None
-    session_id = body.get("sessionId", str(uuid.uuid4()))
-    message = body.get("message")
-    if message is not None:
-        if isinstance(message, str):
-            return message, session_id
-        if isinstance(message, dict):
-            return message.get("text", ""), session_id
-    text = body.get("text")
-    if text is not None:
-        return text, session_id
-    content = body.get("content")
-    if content is not None:
-        return content, session_id
-    query = body.get("query")
-    if query is not None:
-        return query, session_id
-    return None, session_id
+        return None, str(uuid.uuid4())
+    session_id = None
+    if isinstance(body, dict):
+        session_id = body.get("sessionId") or body.get("session_id") or body.get("session")
+    if not session_id:
+        session_id = str(uuid.uuid4())
+    text = extract_text_from_any(body)
+    return text, session_id
 
 
 @app.get("/")
@@ -190,19 +214,42 @@ async def analyze_message_get():
 
 @app.post("/api/analyze-message")
 async def analyze_message_post(request: Request):
-    api_key = request.headers.get("x-api-key") or request.headers.get("X-API-Key")
+    api_key = request.headers.get("x-api-key") or request.headers.get("X-API-Key") or request.headers.get("X-Api-Key")
     if not api_key:
-        raise HTTPException(status_code=401, detail="Missing API key")
+        return JSONResponse(
+            status_code=401,
+            content={"status": "error", "reply": "Missing API key"}
+        )
     if api_key != VALID_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
+        return JSONResponse(
+            status_code=403,
+            content={"status": "error", "reply": "Invalid API key"}
+        )
+    body = None
+    raw_body = ""
+    try:
+        raw_body = await request.body()
+        raw_body = raw_body.decode("utf-8")
+        logger.info(f"Received raw body: {raw_body[:500]}")
+    except Exception as e:
+        logger.error(f"Body read error: {e}")
     try:
         body = await request.json()
-    except Exception:
+        logger.info(f"Parsed JSON body: {body}")
+    except Exception as e:
+        logger.error(f"JSON parse error: {e}")
+        if raw_body and len(raw_body.strip()) > 0:
+            text = raw_body.strip()
+            return JSONResponse(
+                status_code=200,
+                content={"status": "success", "reply": "I see. Can you explain more about this?"}
+            )
         return JSONResponse(
             status_code=200,
-            content={"status": "success", "reply": "I'm here. What would you like to tell me?"}
+            content={"status": "success", "reply": "Hello! How can I help you today?"}
         )
     text, session_id = extract_message_text(body)
+    logger.info(f"Extracted text: {text}, session: {session_id}")
     if not text or len(str(text).strip()) == 0:
         return JSONResponse(
             status_code=200,
@@ -233,4 +280,5 @@ async def analyze_message_post(request: Request):
 
 
 if __name__ == "__main__":
+    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
