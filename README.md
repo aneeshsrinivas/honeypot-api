@@ -130,7 +130,9 @@ Returns the operational status of the service.
 - **Error Handling**: Graceful error management ensures the system remains stable even when receiving malformed requests.
 - **Data Privacy**: No personal data is permanently stored; session data exists only for the duration of the active conversation context.
 
-## Deployment
+## Deployment Status
+
+**Live API Endpoint**: `https://honeypot-api-6569.onrender.com`
 
 This repository includes a `render.yaml` configuration file for seamless deployment on Render.
 
@@ -143,7 +145,7 @@ This repository includes a `render.yaml` configuration file for seamless deploym
 You can test the API using cURL or Postman:
 
 ```bash
-curl -X POST https://your-app-url.onrender.com/api/analyze-message \
+curl -X POST https://honeypot-api-6569.onrender.com/api/analyze-message \
   -H "Content-Type: application/json" \
   -H "x-api-key: scam_hunter_2026_secure_key" \
   -d '{"message": "Your account will be blocked"}'
