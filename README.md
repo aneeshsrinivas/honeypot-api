@@ -1,156 +1,126 @@
-# Agentic Honey-Pot for Scam Detection & Intelligence Extraction
+# Agentic Honey-Pot API for Scam Intelligence
 
-## Project Overview
+## Executive Summary
 
-The Agentic Honey-Pot is an AI-powered security system designed to detect scam attempts, engage malicious actors in multi-turn conversations, and extract actionable intelligence. This system operates as a REST API that analyzes incoming messages, determines if they exhibit fraudulent intent, and autonomously manages the interaction to gather critical data such as bank account details, UPI IDs, and phishing links without revealing its automated nature.
+The Agentic Honey-Pot is an advanced AI-driven security system designed to detect, engage, and analyze fraudulent communications. By simulating human responses, the system autonomously engages threat actors in multi-turn conversations to extract actionable intelligence—including financial identifiers and phishing infrastructure—without revealing its automated nature.
 
-This solution addresses the growing sophistication of financial fraud by deploying an adaptive agent that wastes scammer resources while collecting evidence for security analysis.
+This solution is engineered to support the **Scam Detection & Intelligence Extraction** challenge, providing a robust, stateless REST API that integrates seamlessly with evaluation platforms.
 
-## Core Features
+## Core Capabilities
 
-- **Automated Scam Detection**: Utilizes keyword analysis and pattern matching to identify fraudulent messages related to banking, prizes, threats, and verification requests.
-- **Autonomous AI Agent**: Engages scammers in natural, context-aware conversations to maintain engagement and elicit information.
-- **Intelligence Extraction**: automatically parses messages to identify and log extracting entities including:
-  - Bank Account Numbers
-  - UPI IDs
-  - Phone Numbers
-  - Phishing URLs
-  - IFSC Codes
-- **Session Management**: Maintains conversation state across multiple turns to ensure coherent and logical responses.
-- **Stealth Operation**: Designed to mimic human behavioral patterns (concern, excitement, confusion) to avoid detection by scammers.
-- **GUVI Hackathon Integration**: Includes automated callback mechanisms to report detected scams and extracted intelligence to the evaluation platform.
+*   **Intelligent Scam Detection**: Real-time analysis of incoming messages using extensive keyword heuristics and pattern matching to identify financial fraud, urgency tactics, and verification scams.
+*   **Autonomous Engagement Agent**: A dynamic, context-aware AI persona that adapts its responses (Initial Curiosity → Engagement → Data Extraction) to prolong interactions and elicit information.
+*   **Strategic Intelligence Extraction**: Automatically parses conversation history to identify and log:
+    *   Target Bank Accounts and IFSC Codes
+    *   Fraudulent UPI IDs
+    *   Scammer Phone Numbers
+    *   Phishing URLs
+*   **Stateless Architecture**: Fully RESTful design utilizing `conversationHistory` for context management, ensuring high scalability and reliability across distributed environments.
+*   **Automated Reporting**: Integrated callback mechanism to the GUVI evaluation platform, ensuring real-time reporting of confirmed threats and extracted intelligence.
 
-## Technical Architecture
+## Technical Specifications
 
-The system is built using a modern, lightweight, and scalable stack:
-
-- **Framework**: FastAPI (Python) for high-performance asynchronous API handling.
-- **Server**: Uvicorn as the ASGI web server implementation.
-- **Runtime**: Python 3.11+
-- **Deployment**: Configured for Render.com with automatic build and deployment pipelines.
-- **Data Handling**: In-memory session storage for rapid processing and state management.
-
-## Installation and Setup
-
-### Prerequisites
-
-- Python 3.9 or higher
-- pip (Python package installer)
-- Git version control system
-
-### Local Development Setup
-
-1. **Clone the Repository**
-   ```bash
-   git clone https://github.com/aneeshsrinivas/honeypot-api.git
-   cd honeypot-api
-   ```
-
-2. **Create a Virtual Environment**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. **Install Dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Run the Application**
-   ```bash
-   python -m uvicorn app:app --reload
-   ```
-   The API will be available at http://localhost:8000.
+*   **Runtime**: Python 3.11+
+*   **Framework**: FastAPI (High-performance Async I/O)
+*   **Server**: Uvicorn (ASGI)
+*   **Deployment**: Ready for Render/Docker environments
+*   **Authentication**: API Key enforcement (`x-api-key`)
 
 ## API Documentation
 
 ### Authentication
 
-All API requests must include the following header for authentication:
+All requests to the API must be authenticated using the following header:
 
-```
+```http
 x-api-key: scam_hunter_2026_secure_key
 ```
 
-### Analyze Message Endpoint
+### Endpoints
 
-**URL**: `/api/analyze-message`
-**Method**: `POST`
-**Content-Type**: `application/json`
+#### 1. Analyze Message (`POST /api/analyze-message`)
 
-#### Request Format
+The primary endpoint for processing incoming messages. It analyzes the content, updates the conversation state, and generates an appropriate agent response.
 
-The API accepts multiple request formats to ensure compatibility with various testing tools and real-world inputs.
+**Request Body Schema:**
 
-**Standard Format:**
 ```json
 {
-  "sessionId": "unique-session-id",
+  "sessionId": "string (UUID)",
   "message": {
-    "sender": "scammer",
-    "text": "Your bank account will be blocked. Verify immediately.",
-    "timestamp": "2026-01-21T10:15:30Z"
+    "sender": "string (scammer|user)",
+    "text": "string (message content)",
+    "timestamp": "integer (epoch ms)"
   },
-  "conversationHistory": [],
+  "conversationHistory": [
+    {
+      "sender": "string",
+      "text": "string",
+      "timestamp": "integer"
+    }
+  ],
   "metadata": {
-    "channel": "SMS",
-    "language": "English",
-    "locale": "IN"
+    "channel": "string (SMS|WhatsApp)",
+    "language": "string",
+    "locale": "string"
   }
 }
 ```
 
-**Simplified Format:**
-```json
-{
-  "message": "Your account will be blocked"
-}
-```
-
-#### Response Format
+**Response Schema:**
 
 ```json
 {
   "status": "success",
-  "reply": "Oh no! I do not want my account blocked. What information do you need?"
+  "reply": "string (Agent's response)"
 }
 ```
 
-### Health Check Endpoint
+#### 2. Health Check (`GET /health`)
 
-**URL**: `/health`
-**Method**: `GET`
+Returns the operational status of the service. Useful for uptime monitoring and load balancers.
 
-Returns the operational status of the service.
-
-## Security & Compliance
-
-- **Input Validation**: Robust parsing of incoming JSON payloads to prevent injection attacks and handling logical errors.
-- **Error Handling**: Graceful error management ensures the system remains stable even when receiving malformed requests.
-- **Data Privacy**: No personal data is permanently stored; session data exists only for the duration of the active conversation context.
-
-## Deployment Status
-
-**Live API Endpoint**: `https://honeypot-api-6569.onrender.com`
-
-This repository includes a `render.yaml` configuration file for seamless deployment on Render.
-
-1. Connect your GitHub repository to Render.
-2. Select "Blueprints" and choose this repository.
-3. Render will automatically detect the configuration and deploy the service.
-
-## Testing
-
-You can test the API using cURL or Postman:
-
-```bash
-curl -X POST https://honeypot-api-6569.onrender.com/api/analyze-message \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: scam_hunter_2026_secure_key" \
-  -d '{"message": "Your account will be blocked"}'
+**Response:**
+```json
+{ "status": "healthy" }
 ```
 
-## License
+## System Logic & Workflow
 
-This project is developed for the GUVI Agentic Honey-Pot Challenge. All rights reserved.
+1.  **Ingestion**: The API receives a POST request with the latest message and full conversation history.
+2.  **Detection**: The system scans the aggregate text for known scam vectors (e.g., "block", "verify", "prize").
+3.  **Contextualization**: The AI Agent determines the conversation stage (Initial, Requesting Details, Engaged) based on the interaction history.
+4.  **Response Generation**: A human-like response is generated to encourage the scammer to reveal more information.
+5.  **Intelligence Reporting**: If a scam is confirmed and engagement has occurred, the system asynchronously sends a detailed report to the **GUVI Evaluation Callback Endpoint**, including all extracted entities and agent notes.
+
+## Deployment & Setup
+
+### Local Environment
+
+1.  **Clone the Repository**:
+    ```bash
+    git clone https://github.com/aneeshsrinivas/honeypot-api.git
+    cd honeypot-api
+    ```
+
+2.  **Install Dependencies**:
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+3.  **Launch Server**:
+    ```bash
+    python -m uvicorn app:app --host 0.0.0.0 --port 8000
+    ```
+
+### Cloud Deployment (Render)
+
+This repository is optimized for deployment on Render.com.
+1.  Link your repository to Render.
+2.  Select **Web Service**.
+3.  Set Build Command: `pip install -r requirements.txt`
+4.  Set Start Command: `uvicorn app:app --host 0.0.0.0 --port $PORT`
+
+---
+
+*Developed for the GUVI Agentic Honey-Pot Challenge.*
