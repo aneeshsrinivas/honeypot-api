@@ -5,6 +5,7 @@ import uuid
 import requests
 import threading
 import logging
+import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,15 +15,14 @@ app = FastAPI(title="Scam Honeypot API")
 VALID_API_KEY = "scam_hunter_2026_secure_key"
 GUVI_CALLBACK_URL = "https://hackathon.guvi.in/api/updateHoneyPotFinalResult"
 
-sessions = {}
-
 SCAM_KEYWORDS = [
     "urgent", "immediately", "bank", "block", "blocked", "verify", "verification",
     "upi", "account", "prize", "won", "winner", "lottery", "lucky", "selected",
     "congratulations", "reward", "suspended", "legal", "arrest", "police", "court",
     "fine", "otp", "pin", "password", "kyc", "aadhar", "credit card", "debit card",
     "paytm", "gpay", "phonepe", "ifsc", "expire", "last chance", "hurry", "now",
-    "click here", "link", "download", "install", "confirm", "update"
+    "click here", "link", "download", "install", "confirm", "update", "suspension",
+    "activity", "compromised", "fraud"
 ]
 
 AGENT_RESPONSES = {
@@ -104,7 +104,7 @@ def extract_intelligence(text):
     }
 
 
-def get_response_category(text, keywords):
+def get_response_category(text):
     text_lower = str(text).lower()
     if any(w in text_lower for w in ["won", "winner", "prize", "lottery", "reward", "lucky"]):
         return "prize"
@@ -117,79 +117,69 @@ def get_response_category(text, keywords):
     return "default"
 
 
-def generate_response(text, keywords, message_count):
+def generate_response(text, message_count):
     import random
     if message_count <= 1:
         category = "initial"
     elif message_count > 5:
         category = "engaged"
     else:
-        category = get_response_category(text, keywords)
+        category = get_response_category(text)
     responses = AGENT_RESPONSES.get(category, AGENT_RESPONSES["default"])
     return random.choice(responses)
 
 
-def send_callback(session_id, session_data):
+def send_callback(session_id, full_text, message_count, all_keywords):
     try:
-        all_text = " ".join(session_data.get("messages", []))
-        intel = extract_intelligence(all_text)
-        intel["suspiciousKeywords"] = session_data.get("all_keywords", [])[:10]
+        # Simulate small delay to ensure we are truly async and don't block
+        time.sleep(0.1)
+        intel = extract_intelligence(full_text)
+        intel["suspiciousKeywords"] = list(set(all_keywords))[:15]
+        
+        # Dynamic Agent Notes based on what we found
+        notes = "Scam detected."
+        intel_found = False
+        if intel["bankAccounts"]:
+            notes += " Collected bank account details."
+            intel_found = True
+        if intel["upiIds"]:
+            notes += " Collected UPI ID."
+            intel_found = True
+        if intel["phoneNumbers"]:
+            notes += " Collected phone number."
+            intel_found = True
+        if intel["phishingLinks"]:
+            notes += " Identified phishing link."
+            intel_found = True
+        
+        if not intel_found:
+             notes += " Engaging to extract details. Keywords found: " + ", ".join(intel["suspiciousKeywords"][:5])
+
         payload = {
             "sessionId": session_id,
             "scamDetected": True,
-            "totalMessagesExchanged": session_data.get("message_count", 0),
+            "totalMessagesExchanged": message_count,
             "extractedIntelligence": intel,
-            "agentNotes": "Scammer engaged using urgency and financial tactics"
+            "agentNotes": notes
         }
-        requests.post(GUVI_CALLBACK_URL, json=payload, timeout=10)
+        logger.info(f"Sending callback for session {session_id}...")
+        response = requests.post(GUVI_CALLBACK_URL, json=payload, timeout=5)
+        logger.info(f"Callback response: {response.status_code} - {response.text}")
     except Exception as e:
         logger.error(f"Callback error: {e}")
 
 
-def trigger_callback(session_id, session_data):
-    thread = threading.Thread(target=send_callback, args=(session_id, session_data))
+def trigger_callback(session_id, full_text, message_count, all_keywords):
+    thread = threading.Thread(target=send_callback, args=(session_id, full_text, message_count, all_keywords))
     thread.daemon = True
     thread.start()
-
-
-def extract_text_from_any(obj):
-    if obj is None:
-        return None
-    if isinstance(obj, str):
-        return obj
-    if isinstance(obj, dict):
-        for key in ["text", "message", "content", "query", "body", "msg", "data"]:
-            if key in obj:
-                val = obj[key]
-                if isinstance(val, str):
-                    return val
-                if isinstance(val, dict):
-                    inner = extract_text_from_any(val)
-                    if inner:
-                        return inner
-        for val in obj.values():
-            if isinstance(val, str) and len(val) > 5:
-                return val
-    return None
-
-
-def extract_message_text(body):
-    if body is None:
-        return None, str(uuid.uuid4())
-    session_id = None
-    if isinstance(body, dict):
-        session_id = body.get("sessionId") or body.get("session_id") or body.get("session")
-    if not session_id:
-        session_id = str(uuid.uuid4())
-    text = extract_text_from_any(body)
-    return text, session_id
 
 
 @app.get("/")
 async def root():
     return {
         "status": "success",
-        "message": "Honeypot API is running. Use POST /api/analyze-message to detect scams."
+        "message": "Honeypot API is running."
     }
 
 
@@ -207,77 +197,82 @@ async def health():
 async def analyze_message_get():
     return {
         "status": "success",
-        "message": "This endpoint accepts POST requests with a message to analyze.",
-        "example": {"message": "Your account will be blocked"}
+        "message": "Use POST /api/analyze-message"
     }
 
 
 @app.post("/api/analyze-message")
 async def analyze_message_post(request: Request):
-    api_key = request.headers.get("x-api-key") or request.headers.get("X-API-Key") or request.headers.get("X-Api-Key")
-    if not api_key:
+    # 1. API Key Validation
+    api_key = request.headers.get("x-api-key") or request.headers.get("X-API-Key")
+    if not api_key or api_key != VALID_API_KEY:
         return JSONResponse(
             status_code=401,
-            content={"status": "error", "reply": "Missing API key"}
+            content={"status": "error", "reply": "Invalid or missing API key"}
         )
-    if api_key != VALID_API_KEY:
-        return JSONResponse(
-            status_code=403,
-            content={"status": "error", "reply": "Invalid API key"}
-        )
-    body = None
-    raw_body = ""
-    try:
-        raw_body = await request.body()
-        raw_body = raw_body.decode("utf-8")
-        logger.info(f"Received raw body: {raw_body[:500]}")
-    except Exception as e:
-        logger.error(f"Body read error: {e}")
+
+    # 2. Parse Body safely
     try:
         body = await request.json()
-        logger.info(f"Parsed JSON body: {body}")
-    except Exception as e:
-        logger.error(f"JSON parse error: {e}")
-        if raw_body and len(raw_body.strip()) > 0:
-            text = raw_body.strip()
-            return JSONResponse(
-                status_code=200,
-                content={"status": "success", "reply": "I see. Can you explain more about this?"}
-            )
+    except Exception:
         return JSONResponse(
-            status_code=200,
-            content={"status": "success", "reply": "Hello! How can I help you today?"}
+            status_code=400,
+            content={"status": "error", "reply": "Invalid JSON"}
         )
-    text, session_id = extract_message_text(body)
-    logger.info(f"Extracted text: {text}, session: {session_id}")
-    if not text or len(str(text).strip()) == 0:
-        return JSONResponse(
-            status_code=200,
-            content={"status": "success", "reply": "Hello! How can I help you today?"}
-        )
-    text = str(text).strip()
-    if session_id not in sessions:
-        sessions[session_id] = {
-            "message_count": 0,
-            "messages": [],
-            "all_keywords": [],
-            "scam_detected": False,
-            "callback_sent": False
-        }
-    session = sessions[session_id]
-    session["message_count"] += 1
-    session["messages"].append(text)
-    is_scam, keywords = detect_scam(text)
-    if is_scam:
-        session["scam_detected"] = True
-        session["all_keywords"].extend(keywords)
-        session["all_keywords"] = list(set(session["all_keywords"]))
-    reply = generate_response(text, keywords, session["message_count"])
-    if session["scam_detected"] and session["message_count"] >= 3 and not session["callback_sent"]:
-        session["callback_sent"] = True
-        trigger_callback(session_id, session)
-    return {"status": "success", "reply": reply}
 
+    # 3. Extract Session & Message Info
+    session_id = body.get("sessionId") or body.get("session_id") or str(uuid.uuid4())
+    
+    # Handle 'message' field which might be a dict or string per spec
+    raw_message = body.get("message")
+    current_text = ""
+    if isinstance(raw_message, dict):
+        current_text = raw_message.get("text", "")
+    elif isinstance(raw_message, str):
+        current_text = raw_message
+    
+    current_text = str(current_text).strip()
+    
+    # 4. Handle Conversation History (Stateless)
+    conversation_history = body.get("conversationHistory", [])
+    if not isinstance(conversation_history, list):
+        conversation_history = []
+    
+    # Calculate total messages including current one
+    message_count = len(conversation_history) + 1
+
+    # 5. Detect Scam & Aggregate Intelligence
+    # We analyze the current message for immediate response trigger
+    is_scam, current_keywords = detect_scam(current_text)
+    
+    # We also reconstruct full conversation text for intelligence extraction
+    full_conversation_text = current_text
+    all_keywords = current_keywords.copy()
+    
+    for prev_msg in conversation_history:
+        if isinstance(prev_msg, dict):
+            p_text = prev_msg.get("text", "")
+            full_conversation_text += " " + str(p_text)
+            _, kws = detect_scam(p_text)
+            all_keywords.extend(kws)
+    
+    # 6. Generate Reply
+    reply = generate_response(current_text, message_count)
+
+    # 7. Trigger Callback if criteria met
+    # Criteria: Scam detected anywhere in history OR current message, AND we are deep enough in convo
+    scam_detected_overall = len(all_keywords) > 0
+    
+    # Only callback if we have exchanged a few messages to gather intel, 
+    # OR if it's clearly a scam and we want to report early. 
+    # WE SEND CALLBACK ON EVERY TURN if Scam Detected to ensure "Final Result" is up to date.
+    if scam_detected_overall and message_count >= 2:
+         trigger_callback(session_id, full_conversation_text, message_count, all_keywords)
+
+    return {
+        "status": "success",
+        "reply": reply
+    }
 
 if __name__ == "__main__":
     import uvicorn
